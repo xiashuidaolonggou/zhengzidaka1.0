@@ -26,6 +26,21 @@ export interface AppState {
 }
 
 // --- Reducer Action 类型 ---
+// --- 热力图 ---
+
+/** 单日打卡统计（聚合后） */
+export interface DayStats {
+  date: string;       // '2026-05-26'
+  count: number;       // 该日总打卡次数
+  goalIds: string[];   // 打卡了哪些目标
+  level: number;       // 0-5 颜色层级
+}
+
+/** 热力图聚合 Map：Key = '2026-05-26', Value = DayStats */
+export type DayMap = Map<string, DayStats>;
+
+// --- Reducer Action ---
+
 export type Action =
   | { type: 'LOAD_STATE'; payload: AppState }
   | { type: 'ADD_GOAL'; payload: Goal }

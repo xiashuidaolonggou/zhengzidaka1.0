@@ -1,6 +1,6 @@
-import { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useReducer, useEffect, useMemo, useRef, ReactNode } from 'react';
 import { AppState, Goal, CheckIn, Action, CountStyle } from '../types';
-import { loadState, saveState } from '../storage/asyncStorage';
+import { ensureSchema, migrateFromAsyncStorage, loadFullState, saveFullState } from '../db';
 
 // --- 初始状态 ---
 const initialState: AppState = {
@@ -76,6 +76,7 @@ function reducer(state: AppState, action: Action): AppState {
 // --- Context ---
 interface GoalContextValue {
   goals: Goal[];
+  checkIns: CheckIn[];
   getCheckIns: (goalId: string) => CheckIn[];
   getCheckInCount: (goalId: string) => number;
   getStreak: (goalId: string) => number;
@@ -127,24 +128,31 @@ function calculateStreak(checkIns: CheckIn[]): number {
 // --- Provider ---
 export function GoalProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const loadedRef = useRef(false);
 
-  // 启动时从本地存储加载数据
+  // 启动时初始化数据库，迁移旧数据，从 SQLite 加载
   useEffect(() => {
     (async () => {
-      const saved = await loadState();
-      if (saved) {
+      ensureSchema();
+      await migrateFromAsyncStorage();
+      const saved = loadFullState();
+      if (saved.goals.length > 0 || saved.checkIns.length > 0) {
         dispatch({ type: 'LOAD_STATE', payload: saved });
       }
+      loadedRef.current = true;
     })();
   }, []);
 
-  // 每次 state 变更自动保存
+  // 每次 state 变更自动保存到 SQLite（加载完成前跳过，防止空 initialState 覆盖数据）
   useEffect(() => {
-    saveState(state);
+    if (!loadedRef.current) return;
+    saveFullState(state);
   }, [state]);
 
-  const value: GoalContextValue = {
+  const value = useMemo<GoalContextValue>(() => ({
     goals: state.goals,
+
+    checkIns: state.checkIns,
 
     getCheckIns: (goalId: string) =>
       state.checkIns.filter((c) => c.goalId === goalId),
@@ -195,7 +203,7 @@ export function GoalProvider({ children }: { children: ReactNode }) {
     togglePin: (goalId) => {
       dispatch({ type: 'TOGGLE_PIN', payload: { goalId } });
     },
-  };
+  }), [state]);
 
   return <GoalContext.Provider value={value}>{children}</GoalContext.Provider>;
 }

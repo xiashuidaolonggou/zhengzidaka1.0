@@ -17,7 +17,7 @@ export function GoalDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
 
   useLayoutEffect(() => {
-    const tabNav = navigation.getParent()?.getParent();
+    const tabNav = navigation.getParent();
     if (tabNav) {
       tabNav.setOptions({ tabBarStyle: { display: 'none' as const } });
       return () => {

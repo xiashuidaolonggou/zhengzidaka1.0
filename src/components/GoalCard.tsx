@@ -62,11 +62,11 @@ function snapToClosest(
 interface GoalCardProps {
   goal: Goal;
   checkInCount: number;
-  onPress: () => void;
+  onPress: (goalId: string) => void;
   onDelete: (goalId: string, title: string) => void;
   onSwipeDelete: (goalId: string) => void;
   onTogglePin: (goalId: string) => void;
-  onLongPress: () => void;
+  onLongPress: (goalId: string, title: string) => void;
   isActive: boolean;
   onCardOpen: (goalId: string) => void;
   isEditing: boolean;
@@ -165,7 +165,7 @@ function GoalCardInner({
           if (raw > LEFT_WIDTH) {
             clamped = rubberBand(raw, LEFT_WIDTH);
           } else if (raw < -RIGHT_WIDTH) {
-            clamped = rubberBand(raw, -RIGHT_WIDTH);
+            clamped = rubberBand(raw, RIGHT_WIDTH);
           } else {
             clamped = raw;
           }
@@ -329,7 +329,7 @@ function GoalCardInner({
 
   const handleFolderPress = () => {
     animateClose();
-    onPress();
+    onPress(goal.id);
   };
 
   const handleDeletePress = () => {
@@ -338,7 +338,11 @@ function GoalCardInner({
   };
 
   const handleLongPressProxy = () => {
-    onLongPress();
+    onLongPress(goal.id, goal.title);
+  };
+
+  const handleBodyPress = () => {
+    onPress(goal.id);
   };
 
   // ── Render ──
@@ -399,7 +403,7 @@ function GoalCardInner({
 
                 <TouchableOpacity
                   style={styles.cardBodyTouch}
-                  onPress={isEditing ? undefined : onPress}
+                  onPress={isEditing ? undefined : handleBodyPress}
                   onLongPress={isEditing ? undefined : handleLongPressProxy}
                   activeOpacity={isEditing ? 1 : 0.7}
                   delayLongPress={500}

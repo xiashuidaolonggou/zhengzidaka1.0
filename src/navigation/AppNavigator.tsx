@@ -7,7 +7,13 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { CreateGoalScreen } from '../screens/CreateGoalScreen';
 import { GoalDetailScreen } from '../screens/GoalDetailScreen';
 import { StatsScreen } from '../screens/StatsScreen';
+import { HeatmapScreen } from '../screens/HeatmapScreen';
 import { COLORS, FONT_SIZE } from '../constants';
+
+export type StatsStackParamList = {
+  StatsList: undefined;
+  Heatmap: undefined;
+};
 
 export type GoalStackParamList = {
   Home: undefined;
@@ -15,11 +21,12 @@ export type GoalStackParamList = {
   GoalDetail: { goalId: string };
 };
 
-const Stack = createNativeStackNavigator<GoalStackParamList>();
+const GoalStackNav = createNativeStackNavigator<GoalStackParamList>();
+const StatsStackNav = createNativeStackNavigator<StatsStackParamList>();
 
-function GoalStack() {
+const GoalStack = () => {
   return (
-    <Stack.Navigator
+    <GoalStackNav.Navigator
       screenOptions={{
         headerStyle: { backgroundColor: COLORS.surface },
         headerTintColor: COLORS.textPrimary,
@@ -31,7 +38,7 @@ function GoalStack() {
         headerShadowVisible: false,
       }}
     >
-      <Stack.Screen
+      <GoalStackNav.Screen
         name="Home"
         component={HomeScreen}
         options={({ navigation }) => ({
@@ -51,12 +58,12 @@ function GoalStack() {
           ),
         })}
       />
-      <Stack.Screen
+      <GoalStackNav.Screen
         name="CreateGoal"
         component={CreateGoalScreen}
         options={{ title: '新建目标' }}
       />
-      <Stack.Screen
+      <GoalStackNav.Screen
         name="GoalDetail"
         component={GoalDetailScreen}
         options={{
@@ -64,9 +71,54 @@ function GoalStack() {
           headerBackTitle: '返回',
         }}
       />
-    </Stack.Navigator>
+    </GoalStackNav.Navigator>
   );
-}
+};
+
+const StatsStack = () => {
+  return (
+    <StatsStackNav.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: COLORS.surface },
+        headerTintColor: COLORS.textPrimary,
+        headerTitleStyle: {
+          fontWeight: '600',
+          fontSize: FONT_SIZE.lg,
+        },
+        contentStyle: { backgroundColor: COLORS.background },
+        headerShadowVisible: false,
+      }}
+    >
+      <StatsStackNav.Screen
+        name="StatsList"
+        component={StatsScreen}
+        options={({ navigation }) => ({
+          title: '统计',
+          headerRight: () => (
+            <Text
+              style={{
+                color: COLORS.accentBlue,
+                fontSize: FONT_SIZE.md,
+                fontWeight: '500',
+              }}
+              onPress={() => navigation.navigate('Heatmap')}
+            >
+              热力图
+            </Text>
+          ),
+        })}
+      />
+      <StatsStackNav.Screen
+        name="Heatmap"
+        component={HeatmapScreen}
+        options={{
+          title: '年度热力图',
+          headerBackTitle: '返回',
+        }}
+      />
+    </StatsStackNav.Navigator>
+  );
+};
 
 const Tab = createBottomTabNavigator();
 
@@ -100,18 +152,9 @@ export function AppNavigator() {
         />
         <Tab.Screen
           name="StatsTab"
-          component={StatsScreen}
+          component={StatsStack}
           options={{
-            title: '统计',
             tabBarLabel: '统计',
-            headerShown: true,
-            headerStyle: { backgroundColor: COLORS.surface },
-            headerTitleStyle: {
-              fontWeight: '600',
-              fontSize: FONT_SIZE.lg,
-              color: COLORS.textPrimary,
-            },
-            headerShadowVisible: false,
             tabBarIcon: ({ color }) => (
               <Text style={{ color, fontSize: 19 }}>统</Text>
             ),

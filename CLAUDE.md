@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概况
 
-正字打卡 — 基于 React Native + Expo SDK 54 的习惯追踪 App。纯本地存储（AsyncStorage），无需后端。支持三种计数方式：正字（5笔逐画动画）、四竖一横、五角星。
+正字打卡 — 基于 React Native + Expo SDK 54 的习惯追踪 App。纯本地存储（expo-sqlite），无需后端。支持三种计数方式：正字（5笔逐画动画）、四竖一横、五角星。
 
 ## 常用命令
 
 ```bash
-npx expo start          # 启动开发服务器，扫码在 Expo Go 中运行
+npx expo start          # 启动开发服务器（局域网模式），扫码在 Expo Go 中运行
+npx expo start --tunnel # tunnel 模式（中国地区不稳定，优先用局域网模式）
 npx tsc --noEmit        # TypeScript 类型检查（唯一的质量验证手段）
 ```
 
@@ -34,8 +35,8 @@ npx tsc --noEmit        # TypeScript 类型检查（唯一的质量验证手段�
 - Expo SDK 54 + React Native 0.81.5 + React 19.1.0 + TypeScript ~5.9.2 + Hermes
 - 导航: @react-navigation/native v7（BottomTabs + NativeStack）
 - 状态管理: React Context + useReducer（无第三方状态库）
-- 本地存储: @react-native-async-storage/async-storage（单 key JSON blob: `@tally_app_state_v1`）
-- 手势/动画: react-native-gesture-handler ^2.28 + react-native-reanimated ^4.1.1 + react-native-worklets ^0.5.1
+- 本地存储: expo-sqlite ~16.0.10（SQLite 数据库 `tallycheckin.db`，启动时自动初始化 schema + 迁移旧 AsyncStorage 数据）
+- 手势/动画: react-native-gesture-handler ~2.28 + react-native-reanimated ^4.1.1 + react-native-worklets ^0.5.1
 - SVG: react-native-svg 15.12（正字笔画用 `react-native-reanimated` 原生驱动 `createAnimatedComponent(Path)` 不兼容，必须用 RN 的 `Animated` + JS driver）
 
 ## 架构
@@ -51,12 +52,15 @@ App.tsx
                       └─ BottomTabNavigator
                            ├─ Tab "目标" → GoalStack (NativeStack)
                            │    ├─ Home        → 目标列表 + 滑动操作 + 编辑模式
-                           │    ├─ CreateGoal  → 表单：标题 + 描述 + 8色选择 + 计数方式
+                           │    ├─ CreateGoal  → 表单：标题 + 描述 + 16色选择 + 计数方式
                            │    └─ GoalDetail  → 计数网格 + 打卡/撤销按钮
-                           └─ Tab "统计" → StatsScreen（总次数/连续天数/迷你网格）
+                           └─ Tab "统计" → StatsStack (NativeStack)
+                                ├─ StatsList   → 原 StatsScreen：总次数/连续天数/迷你网格
+                                │                header 右侧「热力图」按钮
+                                └─ Heatmap     → 年度打卡热力图（GitHub 风格）
 ```
 
-注意：GoalDetailScreen 通过 `navigation.getParent()?.setOptions({ tabBarStyle })` 隐藏 Tab 栏（当前有 bug，见下方已知问题）。
+GoalDetailScreen 通过 `navigation.getParent()?.setOptions({ tabBarStyle })` 隐藏 Tab 栏。
 
 ### 数据模型
 
@@ -70,23 +74,42 @@ Goal {
 }
 
 CheckIn { id: string; goalId: string; timestamp: number; }
+
+// 热力图聚合类型
+DayStats { date: string; count: number; goalIds: string[]; level: number; }
+DayMap = Map<string, DayStats>;
 ```
 
 ### 数据流
 
 ```
 GoalContext (useReducer + Context)
-  ├─ 启动: loadState() → LOAD_STATE dispatch
-  ├─ 每次 dispatch 后 useEffect 自动 saveState(state)（不阻塞 UI）
+  ├─ 启动: ensureSchema() → migrateFromAsyncStorage() → loadFullState() → LOAD_STATE dispatch
+  │         建表/迁移均幂等，迁移仅在 SQLite 为空时执行，不覆盖已有数据
+  ├─ 每次 dispatch 后 useEffect 自动 saveFullState(state)
+  │         事务内 DELETE ALL + INSERT ALL，一次写入保证原子性
   ├─ 批量操作 BATCH_DELETE_GOALS / BATCH_SET_PIN 一次 dispatch 完成，避免 N 次 re-render
-  └─ 所有页面通过 useGoals() hook 消费
+  └─ 所有页面通过 useGoals() hook 消费（暴露 goals、checkIns、getCheckIns 等 11 个成员）
 ```
 
 **连续天数计算**: 实际运行的是 `GoalContext.tsx` 中的私有函数 `calculateStreak(CheckIn[])`。`utils/tally.ts` 中有一个同名不同参的导出版本 `calculateStreak(number[])`，是死代码，修改算法时需对准位置。
 
+### SQLite 数据层
+
+```
+src/db/
+├── schema.ts     — DDL（goals 7列、checkins 3列、_migrations），SCHEMA_VERSION=1
+├── database.ts   — getDatabase() 单例，ensureSchema() 幂等建表
+├── repository.ts — loadFullState() / saveFullState() / isEmpty()
+├── migrate.ts    — migrateFromAsyncStorage()：幂等一次性迁移，三层保护（isEmpty/loadState/try-catch）
+└── index.ts      — barrel export
+```
+
+迁移后旧 AsyncStorage 数据保留作为备份（不删除）。
+
 ### GoalCard 滑动手势系统
 
-`GoalCard.tsx` 是整个项目最复杂的组件，约 430 行。使用 **gesture-handler v2 Pan gesture + reanimated v4 worklets** 实现类似 iOS 邮件的滑动操作。
+`GoalCard.tsx` 是项目最复杂的组件。使用 **gesture-handler v2 Pan gesture + reanimated v4 worklets** 实现类似 iOS 邮件的滑动操作。
 
 **Constants:**
 - `LEFT_WIDTH = 72`（pin 按钮宽度）
@@ -107,7 +130,7 @@ GoalContext (useReducer + Context)
 **过滑动 (overswipe):**
 - 左滑超 35% 屏宽 → 自动删除（卡片高度塌陷动画 → `onSwipeDelete`）
 - 右滑超 35% 屏宽 → 自动切换 pin 状态
-- 过滑动使用 rubberBand 函数做弹性效果，拉伸 action 区域视觉
+- 过滑动使用 rubberBand 函数做弹性效果
 
 **编辑模式禁用手势:**
 - `editingSv` shared value 在 `onUpdate`/`onEnd` 开头检查，若为 true 直接 return
@@ -120,7 +143,7 @@ GoalContext (useReducer + Context)
 - `selectedIds: Set<string>` — 选中集合，用 `new Set(prev)` 创建新引用触发渲染
 
 **动画（GoalCard.tsx）:**
-- `editProgress` shared value (0→1) 驱动 `paddingLeft` 从 `SPACING.md` 到 `SPACING.md + 38`
+- `editProgress` shared value (0→1) 驱动 `paddingLeft` 从 `SPACING.md` 到 `SPACING.md + CHECKBOX_WIDTH`
 - 勾选框绝对定位在左侧 padding 区域，`opacity` + `translateX` 淡入滑入
 - `selectedSv` 驱动选中缩放弹性动画
 
@@ -132,6 +155,39 @@ GoalContext (useReducer + Context)
 **性能设计:**
 - `GoalCard` 用 `React.memo` 包裹（注意：HomeScreen 的 handler 回调未用 `useCallback`，memo 效果有限）
 - 批量 reducer action 一次 dispatch vs N 次单独 dispatch
+
+### 年度热力图
+
+`HeatmapScreen` 提供 GitHub Contributions 风格的年度打卡可视化。
+
+**数据流:**
+```
+useGoals().checkIns → buildDayMap(checkIns, year) → DayMap → HeatmapGrid
+                           │
+                           └─ countToLevel(count) → 0-5 颜色层级
+```
+
+**组件树:**
+```
+HeatmapScreen（年份切换、年度总次数、选中日期详情）
+  └─ HeatmapGrid（ScrollView 横向滚动、7行×~53列、月份/星期标签）
+       ├─ HeatmapCell × N（React.memo + Pressable + reanimated 按压缩放）
+       └─ HeatmapLegend（6 级墨色图例）
+```
+
+**颜色映射（宣纸墨韵）:**
+```
+L0: #EDE8DF (0次) → L1: #CFC9BD → L2: #A0988B → L3: #70685E → L4: #423B33 → L5: #1C1915 (11+次)
+```
+
+**核心文件:**
+- `src/utils/heatmap.ts` — 日期网格计算、颜色映射、数据聚合（`buildDayMap`、`getDateForCell`、`getMonthLabels`）
+- `src/components/HeatmapCell.tsx` — 单个单元格，React.memo 自定义比较函数（只比 level + isSelected）
+- `src/components/HeatmapGrid.tsx` — 网格布局，7行星期标签 + 53列单元格 + 横向滚动
+- `src/components/HeatmapLegend.tsx` — 6级色块图例
+- `src/screens/HeatmapScreen.tsx` — 页面容器，年份切换（◀ ▶）、选中日期详情卡片
+
+导航: 统计 Tab → header 右侧「热力图」→ `StatsStack` 内的 `Heatmap` 屏幕。
 
 ### 计数方式组件
 
@@ -165,15 +221,16 @@ GoalContext (useReducer + Context)
 
 ## 已知问题
 
-1. **GoalCard.tsx:168** — `rubberBand(raw, -RIGHT_WIDTH)` 传入了负 limit。rubberBand 内部用 `abs <= limit`，负 limit 导致比较永远为 false，左滑过阈值时卡片跳到相反方向。修复：`rubberBand(raw, RIGHT_WIDTH)`
-2. **GoalDetailScreen.tsx:20** — `navigation.getParent()?.getParent()` 双重 parent 越过了 Tab Navigator。`getParent()` 一次已到 Tab，第二次到了 NavigationContainer，`setOptions({ tabBarStyle })` 无效。修复：`navigation.getParent()`
-3. **HomeScreen.tsx** — `handleDelete`、`handleSwipeDelete`、`handleLongPress` 未用 `useCallback`，导致 `GoalCard` 的 `React.memo` 完全失效（props 每次都变）
+**HomeScreen.tsx** — `handleDelete`、`handleSwipeDelete`、`handleLongPress` 未用 `useCallback`，导致 `GoalCard` 的 `React.memo` 完全失效（props 每次都变）。修复：包裹 `useCallback` 并确认 Context 的 `deleteGoal` 等方法也已稳定化。
 
 ## 注意事项
 
 - 不依赖 @expo/vector-icons，图标用 emoji 替代
 - 空状态用虚线矩形框占位；无打卡时显示一个空正字框（0 笔画）
-- 删除目标会一并清除其所有打卡记录
+- 删除目标会一并清除其所有打卡记录（SQLite FOREIGN KEY ON DELETE CASCADE）
 - 滑动手势删除（过滑动）无二次确认弹窗，按钮删除和长按删除有 Alert 确认——这是有意的交互设计差异
-- AsyncStorage 读写失败静默处理（`catch {}`），无日志输出。对本地优先 App 是可接受的折中，但长期建议加 `console.error`
+- SQLite 读写失败静默处理（`catch {}`）。对本地优先 App 是可接受的折中，但长期建议加 `console.error`
 - `Goal.pinned` 是可选字段（`pinned?: boolean`），消费方需处理 undefined
+- `migrateFromAsyncStorage()` 仅在 SQLite 为空时执行一次，旧 AsyncStorage 数据保留不删
+- `saveFullState()` 采用全量写入（DELETE ALL + INSERT ALL），数据集小（<1000条）时性能足够
+- 中国地区使用 `expo start --tunnel` 常因 ngrok 被封而失败，优先用局域网模式 `expo start`

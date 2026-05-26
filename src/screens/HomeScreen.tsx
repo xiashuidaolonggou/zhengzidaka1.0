@@ -129,7 +129,7 @@ export function HomeScreen({ navigation }: Props) {
   }, [isEditing, isAllSelected, navigation, exitEditMode, selectAll, deselectAll, enterEditMode]);
 
   // ── Delete / Long-press handlers ──
-  const handleDelete = (goalId: string, title: string) => {
+  const handleDelete = useCallback((goalId: string, title: string) => {
     Alert.alert('删除目标', `确定要删除「${title}」吗？\n所有打卡记录也会被清除。`, [
       { text: '取消', style: 'cancel' },
       {
@@ -138,23 +138,28 @@ export function HomeScreen({ navigation }: Props) {
         onPress: () => deleteGoal(goalId),
       },
     ]);
-  };
+  }, [deleteGoal]);
 
-  const handleSwipeDelete = (goalId: string) => {
+  const handleSwipeDelete = useCallback((goalId: string) => {
     deleteGoal(goalId);
-  };
+  }, [deleteGoal]);
 
-  const handleLongPress = (goalId: string, title: string) => {
+  const handleLongPress = useCallback((goalId: string, title: string) => {
     if (isEditing) return;
     Alert.alert('删除目标', `确定要删除「${title}」吗？\n所有打卡记录也会被清除。`, [
       { text: '取消', style: 'cancel' },
       { text: '删除', style: 'destructive', onPress: () => deleteGoal(goalId) },
     ]);
-  };
+  }, [isEditing, deleteGoal]);
 
   const handleCardOpen = useCallback((goalId: string) => {
     setOpenCardId(goalId);
   }, []);
+
+  const handlePress = useCallback((goalId: string) => {
+    dismiss();
+    navigation.navigate('GoalDetail', { goalId });
+  }, [navigation]);
 
   const sorted = [...goals].sort((a, b) => {
     if (a.pinned && !b.pinned) return -1;
@@ -182,14 +187,11 @@ export function HomeScreen({ navigation }: Props) {
               <GoalCard
                 goal={item}
                 checkInCount={getCheckInCount(item.id)}
-                onPress={() => {
-                  dismiss();
-                  navigation.navigate('GoalDetail', { goalId: item.id });
-                }}
+                onPress={handlePress}
                 onDelete={handleDelete}
                 onSwipeDelete={handleSwipeDelete}
                 onTogglePin={togglePin}
-                onLongPress={() => handleLongPress(item.id, item.title)}
+                onLongPress={handleLongPress}
                 isActive={openCardId === item.id}
                 onCardOpen={handleCardOpen}
                 isEditing={isEditing}
